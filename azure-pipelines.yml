@@ -57,14 +57,6 @@ stages:
             tags: |
               $(imageTag)
               latest
-        
-        # Optional: Security scanning (can be disabled if not needed)
-        - task: AzureContainerSecurityScan@0
-          displayName: "Security Scan ${{ service.name }}"
-          inputs:
-            image: "$(acrName)/${{ service.name }}:$(imageTag)"
-          continueOnError: true
-        
         - task: Docker@2
           displayName: "Push ${{ service.name }}"
           inputs:
@@ -127,4 +119,4 @@ stages:
             echo "All services deployed successfully!"
             
             kubectl get pods -n $(kubernetesNamespace)
-            # curl -f http://your-app-url/health || exit 1
+            
