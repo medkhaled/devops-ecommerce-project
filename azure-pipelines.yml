@@ -80,28 +80,43 @@ stages:
       vmImage: "ubuntu-latest"
     steps:
       - checkout: self
-      
+
       # Install kubectl if not available
       - task: KubectlInstaller@0
         displayName: 'Install kubectl'
         inputs:
           kubectlVersion: 'latest'
-      
+
       # Deploy all services
       - ${{ each service in parameters.services }}:
-        - task: KubernetesManifests@0
-          displayName: "Deploy ${{ service.name }}"
+        # Apply Kubernetes manifests
+        - task: Kubectl@1
+          displayName: "Apply manifests for ${{ service.name }}"
           inputs:
-            action: 'deploy'
-            kubernetesServiceConnection: 'aks-connection'
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: 'aks-connection'
             namespace: '$(kubernetesNamespace)'
-            manifests: |
+            command: apply
+            useConfigurationFile: true
+            configuration: |
               k8s/${{ service.deployment }}-deployment.yaml
               k8s/${{ service.deployment }}-service.yaml
-            containers: '$(acrName)/${{ service.name }}:$(imageTag)'
-        
-        - task: Kubernetes@1
-          displayName: "Verify ${{ service.name }} deployment"
+
+        # Update container image
+        - task: Kubectl@1
+          displayName: "Update image for ${{ service.name }}"
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: 'aks-connection'
+            namespace: '$(kubernetesNamespace)'
+            command: set
+            arguments: >
+              image deployment/${{ service.deployment }}
+              ${{ service.name }}=$(acrName)/${{ service.name }}:$(imageTag)
+
+        # Verify rollout
+        - task: Kubectl@1
+          displayName: "Verify ${{ service.name }} rollout"
           inputs:
             connectionType: "Kubernetes Service Connection"
             kubernetesServiceEndpoint: "aks-connection"
@@ -110,7 +125,7 @@ stages:
             arguments: "status deployment/${{ service.deployment }} --timeout=300s"
       
       # Final health check
-      - task: Kubernetes@1
+      - task: Kubectl@1
         displayName: "Get Pod Status"
         inputs:
           connectionType: "Kubernetes Service Connection"
@@ -126,7 +141,6 @@ stages:
           script: |
             echo "Running post-deployment health checks..."
             
-            # Check if all deployments are ready
             for deployment in frontend users products cart; do
               echo "Checking deployment: $deployment"
               kubectl get deployment/$deployment -n $(kubernetesNamespace) -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
