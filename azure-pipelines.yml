@@ -10,54 +10,71 @@ trigger:
 
 variables:
   acrName: devopsecomacr1234.azurecr.io
-  services: frontend users products cart
+
+# Définition des microservices 
+parameters:
+  - name: services
+    type: object
+    default:
+      - name: frontend
+        path: app/frontend
+        deployment: frontend
+      - name: users-service
+        path: app/users-service
+        deployment: users
+      - name: products-service
+        path: app/products-service
+        deployment: products
+      - name: cart-service
+        path: app/cart-service
+        deployment: cart
 
 stages:
 - stage: Build
-  displayName: 'Build and Push Docker Images'
+  displayName: "Build and Push Docker Images"
   jobs:
-  - ${{ each service in variables.services }}:
-    - job: Build_${{ service }}
-      displayName: 'Build & Push ${{ service }}'
+  - ${{ each service in parameters.services }}:
+    - job: Build_${{ service.name }}
+      displayName: "Build & Push ${{ service.name }}"
       pool:
-        vmImage: 'ubuntu-latest'
+        vmImage: "ubuntu-latest"
       steps:
         - checkout: self
         - task: Docker@2
-          displayName: 'Build & Push ${{ service }}'
+          displayName: "Build & Push ${{ service.name }}"
           inputs:
-            containerRegistry: 'ACR-ServiceConnection'
-            repository: '$(acrName)/${{ service }}'
-            command: 'buildAndPush'
-            Dockerfile: 'app/${{ service }}/Dockerfile'
+            containerRegistry: "ACR-ServiceConnection"
+            repository: "$(acrName)/${{ service.name }}"
+            command: "buildAndPush"
+            Dockerfile: "${{ service.path }}/Dockerfile"
             tags: |
               $(Build.BuildId)
 
 - stage: Deploy
-  displayName: 'Deploy to Kubernetes'
+  displayName: "Deploy to Kubernetes"
   dependsOn: Build
   jobs:
-    - ${{ each service in variables.services }}:
-      - job: Deploy_${{ service }}
-        displayName: 'Deploy ${{ service }}'
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - checkout: self
-          - task: Kubernetes@1
-            displayName: 'Set image for ${{ service }}'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'AKS-ServiceConnection'
-              namespace: 'default'
-              command: 'set'
-              arguments: 'image deployment/${{ service }} ${{ service }}=$(acrName)/${{ service }}:$(Build.BuildId)'
+  - ${{ each service in parameters.services }}:
+    - job: Deploy_${{ service.name }}
+      displayName: "Deploy ${{ service.name }}"
+      pool:
+        vmImage: "ubuntu-latest"
+      steps:
+        - checkout: self
+        - task: Kubernetes@1
+          displayName: "Set image for ${{ service.name }}"
+          inputs:
+            connectionType: "Kubernetes Service Connection"
+            kubernetesServiceEndpoint: "AKS-ServiceConnection"
+            namespace: "default"
+            command: "set"
+            arguments: "image deployment/${{ service.deployment }} ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(Build.BuildId)"
 
-          - task: Kubernetes@1
-            displayName: 'Rollout restart ${{ service }}'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'AKS-ServiceConnection'
-              namespace: 'default'
-              command: 'rollout'
-              arguments: 'restart deployment/${{ service }}'
+        - task: Kubernetes@1
+          displayName: "Rollout restart ${{ service.name }}"
+          inputs:
+            connectionType: "Kubernetes Service Connection"
+            kubernetesServiceEndpoint: "AKS-ServiceConnection"
+            namespace: "default"
+            command: "rollout"
+            arguments: "restart deployment/${{ service.deployment }}"
