@@ -54,9 +54,11 @@ stages:
             repository: "${{ service.name }}"
             command: "build"
             Dockerfile: "${{ service.path }}/Dockerfile"
+            buildContext: "${{ service.path }}"
             tags: |
               $(imageTag)
               latest
+              
         - task: Docker@2
           displayName: "Push ${{ service.name }}"
           inputs:
@@ -70,6 +72,7 @@ stages:
 - stage: Deploy
   displayName: "Deploy to Production"
   dependsOn: Build
+  condition: succeeded()
   jobs:
   - job: Deploy_All_Services
     displayName: "Deploy All Services"
@@ -78,30 +81,27 @@ stages:
     steps:
       - checkout: self
       
+      # Install kubectl if not available
+      - task: KubectlInstaller@0
+        displayName: 'Install kubectl'
+        inputs:
+          kubectlVersion: 'latest'
+      
       # Deploy all services
       - ${{ each service in parameters.services }}:
-        - task: Kubernetes@1
+        - task: KubernetesManifests@0
           displayName: "Deploy ${{ service.name }}"
           inputs:
-            connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "aks-connection"
-            namespace: "$(kubernetesNamespace)"
-            command: "set"
-            arguments: >
-              image deployment/${{ service.deployment }}
-              ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag)
+            action: 'deploy'
+            kubernetesServiceConnection: 'aks-connection'
+            namespace: '$(kubernetesNamespace)'
+            manifests: |
+              k8s/${{ service.deployment }}-deployment.yaml
+              k8s/${{ service.deployment }}-service.yaml
+            containers: '$(acrName)/${{ service.name }}:$(imageTag)'
         
         - task: Kubernetes@1
-          displayName: "Rollout restart ${{ service.name }}"
-          inputs:
-            connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "aks-connection"
-            namespace: "$(kubernetesNamespace)"
-            command: "rollout"
-            arguments: "restart deployment/${{ service.deployment }}"
-        
-        - task: Kubernetes@1
-          displayName: "Wait for ${{ service.name }} rollout"
+          displayName: "Verify ${{ service.name }} deployment"
           inputs:
             connectionType: "Kubernetes Service Connection"
             kubernetesServiceEndpoint: "aks-connection"
@@ -110,13 +110,28 @@ stages:
             arguments: "status deployment/${{ service.deployment }} --timeout=300s"
       
       # Final health check
+      - task: Kubernetes@1
+        displayName: "Get Pod Status"
+        inputs:
+          connectionType: "Kubernetes Service Connection"
+          kubernetesServiceEndpoint: "aks-connection"
+          namespace: "$(kubernetesNamespace)"
+          command: "get"
+          arguments: "pods -o wide"
+      
       - task: Bash@3
         displayName: "Post-Deployment Health Check"
         inputs:
           targetType: 'inline'
           script: |
             echo "Running post-deployment health checks..."
-            echo "All services deployed successfully!"
             
-            kubectl get pods -n $(kubernetesNamespace)
+            # Check if all deployments are ready
+            for deployment in frontend users products cart; do
+              echo "Checking deployment: $deployment"
+              kubectl get deployment/$deployment -n $(kubernetesNamespace) -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+              echo ""
+            done
             
+            echo "All services deployment status checked!"
+            kubectl get all -n $(kubernetesNamespace)
