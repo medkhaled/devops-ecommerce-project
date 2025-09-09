@@ -81,71 +81,58 @@ stages:
     steps:
       - checkout: self
 
-      # Install kubectl if not available
+      # Install kubectl
       - task: KubectlInstaller@0
         displayName: 'Install kubectl'
         inputs:
           kubectlVersion: 'latest'
 
-      # Deploy all services
-      - ${{ each service in parameters.services }}:
-        # Apply Kubernetes manifests
-        - task: Kubectl@1
-          displayName: "Apply manifests for ${{ service.name }}"
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: 'aks-connection'
-            namespace: '$(kubernetesNamespace)'
-            command: apply
-            useConfigurationFile: true
-            configuration: |
-              k8s/${{ service.deployment }}-deployment.yaml
-              k8s/${{ service.deployment }}-service.yaml
-
-        # Update container image
-        - task: Kubectl@1
-          displayName: "Update image for ${{ service.name }}"
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: 'aks-connection'
-            namespace: '$(kubernetesNamespace)'
-            command: set
-            arguments: >
-              image deployment/${{ service.deployment }}
-              ${{ service.name }}=$(acrName)/${{ service.name }}:$(imageTag)
-
-        # Verify rollout
-        - task: Kubectl@1
-          displayName: "Verify ${{ service.name }} rollout"
-          inputs:
-            connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "aks-connection"
-            namespace: "$(kubernetesNamespace)"
-            command: "rollout"
-            arguments: "status deployment/${{ service.deployment }} --timeout=300s"
-      
-      # Final health check
-      - task: Kubectl@1
-        displayName: "Get Pod Status"
+      # Authenticate with AKS using Azure CLI
+      - task: AzureCLI@2
+        displayName: "AKS Login"
         inputs:
-          connectionType: "Kubernetes Service Connection"
-          kubernetesServiceEndpoint: "aks-connection"
-          namespace: "$(kubernetesNamespace)"
-          command: "get"
-          arguments: "pods -o wide"
-      
+          azureSubscription: "aks-connection"
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            echo "Getting AKS credentials..."
+            az aks get-credentials --resource-group YOUR_RG --name YOUR_AKS_NAME --overwrite-existing
+
+      # Deploy each service
+      - ${{ each service in parameters.services }}:
+        - task: Bash@3
+          displayName: "Deploy ${{ service.name }}"
+          inputs:
+            targetType: inline
+            script: |
+              echo "Applying manifests for ${{ service.name }}..."
+              kubectl apply -n $(kubernetesNamespace) -f k8s/${{ service.deployment }}-deployment.yaml
+              kubectl apply -n $(kubernetesNamespace) -f k8s/${{ service.deployment }}-service.yaml
+              
+              echo "Updating image for ${{ service.name }}..."
+              kubectl set image deployment/${{ service.deployment }} \
+                ${{ service.name }}=$(acrName)/${{ service.name }}:$(imageTag) \
+                -n $(kubernetesNamespace)
+
+              echo "Waiting for rollout of ${{ service.name }}..."
+              kubectl rollout status deployment/${{ service.deployment }} \
+                -n $(kubernetesNamespace) --timeout=300s
+
+      # Final health check
       - task: Bash@3
         displayName: "Post-Deployment Health Check"
         inputs:
           targetType: 'inline'
           script: |
-            echo "Running post-deployment health checks..."
+            echo "Checking all pods in namespace $(kubernetesNamespace)..."
+            kubectl get pods -o wide -n $(kubernetesNamespace)
             
+            echo "Checking deployments availability..."
             for deployment in frontend users products cart; do
-              echo "Checking deployment: $deployment"
+              echo "Deployment: $deployment"
               kubectl get deployment/$deployment -n $(kubernetesNamespace) -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
               echo ""
             done
             
-            echo "All services deployment status checked!"
+            echo "Full cluster state:"
             kubectl get all -n $(kubernetesNamespace)
