@@ -36,7 +36,7 @@ stages:
   displayName: "Build and Push Docker Images"
   jobs:
   - ${{ each service in parameters.services }}:
-      job: Build_${{ service.safeName }}
+    - job: Build_${{ service.safeName }}
       displayName: "Build & Push ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
@@ -57,7 +57,7 @@ stages:
   dependsOn: Build
   jobs:
   - ${{ each service in parameters.services }}:
-      job: Deploy_${{ service.safeName }}
+    - job: Deploy_${{ service.safeName }}
       displayName: "Deploy ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
