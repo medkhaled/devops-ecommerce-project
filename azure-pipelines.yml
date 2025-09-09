@@ -6,8 +6,10 @@ trigger:
     exclude:
       - README.md
       - .gitignore
+
 variables:
   acrName: devopsecomacr1234.azurecr.io
+
 parameters:
   - name: services
     type: object
@@ -34,7 +36,7 @@ stages:
   displayName: "Build and Push Docker Images"
   jobs:
   - ${{ each service in parameters.services }}:
-    - job: Build_${{ service.safeName }}
+      job: Build_${{ service.safeName }}
       displayName: "Build & Push ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
@@ -55,7 +57,7 @@ stages:
   dependsOn: Build
   jobs:
   - ${{ each service in parameters.services }}:
-    - job: Deploy_${{ service.safeName }}
+      job: Deploy_${{ service.safeName }}
       displayName: "Deploy ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
@@ -68,7 +70,9 @@ stages:
             kubernetesServiceEndpoint: "aks-connection"
             namespace: "default"
             command: "set"
-            arguments: "image deployment/${{ service.deployment }} ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(Build.BuildId)"
+            arguments: >
+              image deployment/${{ service.deployment }}
+              ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(Build.BuildId)
 
         - task: Kubernetes@1
           displayName: "Rollout restart ${{ service.name }}"
