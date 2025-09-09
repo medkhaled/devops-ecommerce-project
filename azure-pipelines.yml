@@ -6,10 +6,8 @@ trigger:
     exclude:
       - README.md
       - .gitignore
-
 variables:
   acrName: devopsecomacr1234.azurecr.io
-
 parameters:
   - name: services
     type: object
