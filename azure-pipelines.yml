@@ -43,7 +43,7 @@ stages:
         - task: Docker@2
           displayName: "Build & Push ${{ service.name }}"
           inputs:
-            containerRegistry: "ACR-ServiceConnection"
+            containerRegistry: "acr-connection"
             repository: "$(acrName)/${{ service.name }}"
             command: "buildAndPush"
             Dockerfile: "${{ service.path }}/Dockerfile"
@@ -65,7 +65,7 @@ stages:
           displayName: "Set image for ${{ service.name }}"
           inputs:
             connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "AKS-ServiceConnection"
+            kubernetesServiceEndpoint: "aks-connection"
             namespace: "default"
             command: "set"
             arguments: "image deployment/${{ service.deployment }} ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(Build.BuildId)"
@@ -74,7 +74,7 @@ stages:
           displayName: "Rollout restart ${{ service.name }}"
           inputs:
             connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "AKS-ServiceConnection"
+            kubernetesServiceEndpoint: "aks-connection"
             namespace: "default"
             command: "rollout"
             arguments: "restart deployment/${{ service.deployment }}"
