@@ -79,55 +79,52 @@ stages:
   displayName: "Deploy to Production"
   dependsOn: Build
   jobs:
-  - deployment: Deploy_All_Services
+  - job: Deploy_All_Services
     displayName: "Deploy All Services"
     pool:
       vmImage: "ubuntu-latest"
-    environment: 'production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-          
-          # Deploy all services
-          - ${{ each service in parameters.services }}:
-            - task: Kubernetes@1
-              displayName: "Deploy ${{ service.name }}"
-              inputs:
-                connectionType: "Kubernetes Service Connection"
-                kubernetesServiceEndpoint: "aks-connection"
-                namespace: "$(kubernetesNamespace)"
-                command: "set"
-                arguments: >
-                  image deployment/${{ service.deployment }}
-                  ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag)
+    steps:
+      - checkout: self
+      
+      # Deploy all services
+      - ${{ each service in parameters.services }}:
+        - task: Kubernetes@1
+          displayName: "Deploy ${{ service.name }}"
+          inputs:
+            connectionType: "Kubernetes Service Connection"
+            kubernetesServiceEndpoint: "aks-connection"
+            namespace: "$(kubernetesNamespace)"
+            command: "set"
+            arguments: >
+              image deployment/${{ service.deployment }}
+              ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag)
+        
+        - task: Kubernetes@1
+          displayName: "Rollout restart ${{ service.name }}"
+          inputs:
+            connectionType: "Kubernetes Service Connection"
+            kubernetesServiceEndpoint: "aks-connection"
+            namespace: "$(kubernetesNamespace)"
+            command: "rollout"
+            arguments: "restart deployment/${{ service.deployment }}"
+        
+        - task: Kubernetes@1
+          displayName: "Wait for ${{ service.name }} rollout"
+          inputs:
+            connectionType: "Kubernetes Service Connection"
+            kubernetesServiceEndpoint: "aks-connection"
+            namespace: "$(kubernetesNamespace)"
+            command: "rollout"
+            arguments: "status deployment/${{ service.deployment }} --timeout=300s"
+      
+      # Final health check
+      - task: Bash@3
+        displayName: "Post-Deployment Health Check"
+        inputs:
+          targetType: 'inline'
+          script: |
+            echo "Running post-deployment health checks..."
+            echo "All services deployed successfully!"
             
-            - task: Kubernetes@1
-              displayName: "Rollout restart ${{ service.name }}"
-              inputs:
-                connectionType: "Kubernetes Service Connection"
-                kubernetesServiceEndpoint: "aks-connection"
-                namespace: "$(kubernetesNamespace)"
-                command: "rollout"
-                arguments: "restart deployment/${{ service.deployment }}"
-            
-            - task: Kubernetes@1
-              displayName: "Wait for ${{ service.name }} rollout"
-              inputs:
-                connectionType: "Kubernetes Service Connection"
-                kubernetesServiceEndpoint: "aks-connection"
-                namespace: "$(kubernetesNamespace)"
-                command: "rollout"
-                arguments: "status deployment/${{ service.deployment }} --timeout=300s"
-          
-          # Final health check
-          - task: Bash@3
-            displayName: "Post-Deployment Health Check"
-            inputs:
-              targetType: 'inline'
-              script: |
-                echo "Running post-deployment health checks..."
-                echo "All services deployed successfully!"
-                kubectl get pods -n $(kubernetesNamespace)
-                
+            kubectl get pods -n $(kubernetesNamespace)
+            # curl -f http://your-app-url/health || exit 1
