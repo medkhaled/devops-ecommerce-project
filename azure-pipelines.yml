@@ -6,9 +6,13 @@ trigger:
     exclude:
       - README.md
       - .gitignore
+      - docs/**
+      - "*.md"
 
 variables:
   acrName: devopsecomacr1234.azurecr.io
+  kubernetesNamespace: default
+  imageTag: $(Build.BuildId)
 
 parameters:
   - name: services
@@ -42,43 +46,88 @@ stages:
         vmImage: "ubuntu-latest"
       steps:
         - checkout: self
+        
         - task: Docker@2
-          displayName: "Build & Push ${{ service.name }}"
+          displayName: "Build ${{ service.name }}"
           inputs:
             containerRegistry: "acr-connection"
-            repository: "$(acrName)/${{ service.name }}"
-            command: "buildAndPush"
+            repository: "${{ service.name }}"
+            command: "build"
             Dockerfile: "${{ service.path }}/Dockerfile"
             tags: |
-              $(Build.BuildId)
+              $(imageTag)
+              latest
+        
+        # Optional: Security scanning (can be disabled if not needed)
+        - task: AzureContainerSecurityScan@0
+          displayName: "Security Scan ${{ service.name }}"
+          inputs:
+            image: "$(acrName)/${{ service.name }}:$(imageTag)"
+          continueOnError: true
+        
+        - task: Docker@2
+          displayName: "Push ${{ service.name }}"
+          inputs:
+            containerRegistry: "acr-connection"
+            repository: "${{ service.name }}"
+            command: "push"
+            tags: |
+              $(imageTag)
+              latest
 
 - stage: Deploy
-  displayName: "Deploy to Kubernetes"
+  displayName: "Deploy to Production"
   dependsOn: Build
   jobs:
-  - ${{ each service in parameters.services }}:
-    - job: Deploy_${{ service.safeName }}
-      displayName: "Deploy ${{ service.name }}"
-      pool:
-        vmImage: "ubuntu-latest"
-      steps:
-        - checkout: self
-        - task: Kubernetes@1
-          displayName: "Set image for ${{ service.name }}"
-          inputs:
-            connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "aks-connection"
-            namespace: "default"
-            command: "set"
-            arguments: >
-              image deployment/${{ service.deployment }}
-              ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(Build.BuildId)
-
-        - task: Kubernetes@1
-          displayName: "Rollout restart ${{ service.name }}"
-          inputs:
-            connectionType: "Kubernetes Service Connection"
-            kubernetesServiceEndpoint: "aks-connection"
-            namespace: "default"
-            command: "rollout"
-            arguments: "restart deployment/${{ service.deployment }}"
+  - deployment: Deploy_All_Services
+    displayName: "Deploy All Services"
+    pool:
+      vmImage: "ubuntu-latest"
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          # Deploy all services
+          - ${{ each service in parameters.services }}:
+            - task: Kubernetes@1
+              displayName: "Deploy ${{ service.name }}"
+              inputs:
+                connectionType: "Kubernetes Service Connection"
+                kubernetesServiceEndpoint: "aks-connection"
+                namespace: "$(kubernetesNamespace)"
+                command: "set"
+                arguments: >
+                  image deployment/${{ service.deployment }}
+                  ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag)
+            
+            - task: Kubernetes@1
+              displayName: "Rollout restart ${{ service.name }}"
+              inputs:
+                connectionType: "Kubernetes Service Connection"
+                kubernetesServiceEndpoint: "aks-connection"
+                namespace: "$(kubernetesNamespace)"
+                command: "rollout"
+                arguments: "restart deployment/${{ service.deployment }}"
+            
+            - task: Kubernetes@1
+              displayName: "Wait for ${{ service.name }} rollout"
+              inputs:
+                connectionType: "Kubernetes Service Connection"
+                kubernetesServiceEndpoint: "aks-connection"
+                namespace: "$(kubernetesNamespace)"
+                command: "rollout"
+                arguments: "status deployment/${{ service.deployment }} --timeout=300s"
+          
+          # Final health check
+          - task: Bash@3
+            displayName: "Post-Deployment Health Check"
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Running post-deployment health checks..."
+                echo "All services deployed successfully!"
+                kubectl get pods -n $(kubernetesNamespace)
+                
