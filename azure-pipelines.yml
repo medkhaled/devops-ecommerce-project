@@ -6,26 +6,28 @@ trigger:
     include:
       - app/*
       - k8s/*
-      - azure-pipelines.yml
 
 variables:
   acrName: devopsecomacr1234.azurecr.io
 
-# Définition des microservices 
 parameters:
   - name: services
     type: object
     default:
       - name: frontend
+        safeName: frontend
         path: app/frontend
         deployment: frontend
       - name: users-service
+        safeName: users_service
         path: app/users-service
         deployment: users
       - name: products-service
+        safeName: products_service
         path: app/products-service
         deployment: products
       - name: cart-service
+        safeName: cart_service
         path: app/cart-service
         deployment: cart
 
@@ -34,7 +36,7 @@ stages:
   displayName: "Build and Push Docker Images"
   jobs:
   - ${{ each service in parameters.services }}:
-    - job: Build_${{ service.name }}
+    - job: Build_${{ service.safeName }}
       displayName: "Build & Push ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
@@ -55,7 +57,7 @@ stages:
   dependsOn: Build
   jobs:
   - ${{ each service in parameters.services }}:
-    - job: Deploy_${{ service.name }}
+    - job: Deploy_${{ service.safeName }}
       displayName: "Deploy ${{ service.name }}"
       pool:
         vmImage: "ubuntu-latest"
