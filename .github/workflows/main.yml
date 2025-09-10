@@ -39,7 +39,7 @@ jobs:
 
     - name: Deploy all services
       run: |
-        # Define microservices, paths, and deployment YAML filenames
+        # Define microservices and their Docker context paths
         declare -A services=(
             ["frontend"]="app/frontend"
             ["users"]="app/users-service"
@@ -47,6 +47,7 @@ jobs:
             ["cart"]="app/cart-service"
         )
 
+        # Map service names to deployment YAML filenames
         declare -A deployments=(
             ["frontend"]="frontend.yaml"
             ["users"]="users.yaml"
@@ -54,9 +55,18 @@ jobs:
             ["cart"]="cart.yaml"
         )
 
+        # Map service names to Kubernetes deployment names
+        declare -A k8s_deployments=(
+            ["frontend"]="frontend"
+            ["users"]="users-service"
+            ["products"]="products-service"
+            ["cart"]="cart-service"
+        )
+
         for service in "${!services[@]}"; do
           context=${services[$service]}
           deployment_file=${deployments[$service]}
+          deployment_name=${k8s_deployments[$service]}
 
           echo "=============================="
           echo "Building and pushing $service image"
@@ -77,11 +87,11 @@ jobs:
           kubectl apply -f k8s/services/$service-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
           # Update deployment image
-          kubectl set image deployment/$service $service=${{ env.ACR_NAME }}/$service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+          kubectl set image deployment/$deployment_name $service=${{ env.ACR_NAME }}/$service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
 
           # Wait for rollout
-          echo "Waiting for rollout of $service"
-          kubectl rollout status deployment/$service -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+          echo "Waiting for rollout of $deployment_name"
+          kubectl rollout status deployment/$deployment_name -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
         done
 
     - name: Cluster Health Check
