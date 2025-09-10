@@ -1,0 +1,85 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - 'docs/**'
+      - '*.md'
+
+env:
+  ACR_NAME: devopsecomacr1234.azurecr.io
+  KUBERNETES_NAMESPACE: default
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.ACR_NAME }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Set up Kubeconfig
+      uses: azure/k8s-set-context@v4
+      with:
+        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+    # Build and push frontend
+    - name: Build and Push frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: app/frontend
+        push: true
+        tags: |
+          ${{ env.ACR_NAME }}/frontend:${{ github.run_id }}
+          ${{ env.ACR_NAME }}/frontend:latest
+
+    - name: Deploy frontend to AKS
+      run: |
+        kubectl set image deployment/frontend frontend=${{ env.ACR_NAME }}/frontend:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
+        kubectl apply -f k8s/frontend-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/frontend-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        echo "Waiting for rollout of frontend"
+        kubectl rollout status deployment/frontend -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+
+    # Build and push users-service
+    - name: Build and Push users-service image
+      uses: docker/build-push-action@v5
+      with:
+        context: app/users-service
+        push: true
+        tags: |
+          ${{ env.ACR_NAME }}/users-service:${{ github.run_id }}
+          ${{ env.ACR_NAME }}/users-service:latest
+
+    - name: Deploy users-service to AKS
+      run: |
+        kubectl set image deployment/users users=${{ env.ACR_NAME }}/users-service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
+        kubectl apply -f k8s/users-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        echo "Waiting for rollout of users"
+        kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+    
+    # Repeat similar steps for products-service and cart-service
+
+    # Final health check
+    - name: Cluster Health Check
+      run: |
+        echo "Checking pods in namespace ${{ env.KUBERNETES_NAMESPACE }}"
+        kubectl get pods -o wide -n ${{ env.KUBERNETES_NAMESPACE }}
+        echo "Checking services in namespace ${{ env.KUBERNETES_NAMESPACE }}"
+        kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
+        echo "All services deployed successfully!"
