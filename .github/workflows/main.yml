@@ -49,8 +49,8 @@ jobs:
     - name: Deploy frontend to AKS
       run: |
         kubectl set image deployment/frontend frontend=${{ env.ACR_NAME }}/frontend:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
-        kubectl apply -f k8s/frontend-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        kubectl apply -f k8s/frontend-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/deployements/frontend-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/deployements/frontend-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
         echo "Waiting for rollout of frontend"
         kubectl rollout status deployment/frontend -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
@@ -67,8 +67,8 @@ jobs:
     - name: Deploy users-service to AKS
       run: |
         kubectl set image deployment/users users=${{ env.ACR_NAME }}/users-service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
-        kubectl apply -f k8s/users-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        kubectl apply -f k8s/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/deployements/users-deployment.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/deployements/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
         echo "Waiting for rollout of users"
         kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
