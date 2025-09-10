@@ -36,93 +36,233 @@ parameters:
         deployment: cart
 
 stages:
+# -----------------------------
+# Build Stage
+# -----------------------------
 - stage: Build
   displayName: "Build and Push Docker Images"
   jobs:
-    ${{ each service in parameters.services }}:
-      - job: Build_${{ service.safeName }}
-        displayName: "Build & Push ${{ service.name }}"
-        pool:
-          vmImage: "ubuntu-latest"
-        steps:
-          - checkout: self
+  - job: Build_frontend
+    displayName: "Build & Push frontend"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+    - checkout: self
 
-          - task: Docker@2
-            displayName: "Build ${{ service.name }}"
-            inputs:
-              containerRegistry: "acr-connection"
-              repository: "${{ service.name }}"
-              command: "build"
-              Dockerfile: "${{ service.path }}/Dockerfile"
-              buildContext: "${{ service.path }}"
-              tags: |
-                $(imageTag)
-                latest
+    - task: Docker@2
+      displayName: "Build frontend"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "frontend"
+        command: "build"
+        Dockerfile: "app/frontend/Dockerfile"
+        buildContext: "app/frontend"
+        tags: |
+          $(imageTag)
+          latest
           
-          - task: Docker@2
-            displayName: "Push ${{ service.name }}"
-            inputs:
-              containerRegistry: "acr-connection"
-              repository: "${{ service.name }}"
-              command: "push"
-              tags: |
-                $(imageTag)
-                latest
+    - task: Docker@2
+      displayName: "Push frontend"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "frontend"
+        command: "push"
+        tags: |
+          $(imageTag)
+          latest
 
+  - job: Build_users_service
+    displayName: "Build & Push users-service"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+    - checkout: self
+
+    - task: Docker@2
+      displayName: "Build users-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "users-service"
+        command: "build"
+        Dockerfile: "app/users-service/Dockerfile"
+        buildContext: "app/users-service"
+        tags: |
+          $(imageTag)
+          latest
+          
+    - task: Docker@2
+      displayName: "Push users-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "users-service"
+        command: "push"
+        tags: |
+          $(imageTag)
+          latest
+
+  - job: Build_products_service
+    displayName: "Build & Push products-service"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+    - checkout: self
+
+    - task: Docker@2
+      displayName: "Build products-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "products-service"
+        command: "build"
+        Dockerfile: "app/products-service/Dockerfile"
+        buildContext: "app/products-service"
+        tags: |
+          $(imageTag)
+          latest
+          
+    - task: Docker@2
+      displayName: "Push products-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "products-service"
+        command: "push"
+        tags: |
+          $(imageTag)
+          latest
+
+  - job: Build_cart_service
+    displayName: "Build & Push cart-service"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+    - checkout: self
+
+    - task: Docker@2
+      displayName: "Build cart-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "cart-service"
+        command: "build"
+        Dockerfile: "app/cart-service/Dockerfile"
+        buildContext: "app/cart-service"
+        tags: |
+          $(imageTag)
+          latest
+          
+    - task: Docker@2
+      displayName: "Push cart-service"
+      inputs:
+        containerRegistry: "acr-connection"
+        repository: "cart-service"
+        command: "push"
+        tags: |
+          $(imageTag)
+          latest
+# -----------------------------
+# Deploy Stage
+# -----------------------------
 - stage: Deploy
   displayName: "Deploy to AKS"
   dependsOn: Build
   condition: succeeded()
   jobs:
-    - job: Deploy_All_Services
-      displayName: "Deploy All Services"
-      pool:
-        vmImage: "ubuntu-latest"
-      steps:
-        - checkout: self
-        - task: DownloadSecureFile@1
-          name: downloadKube
-          inputs:
-            secureFile: 'aks-kubeconfig'
+  - job: Deploy_All_Services
+    displayName: "Deploy All Services"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+    - checkout: self
 
-        - task: Bash@3
-          displayName: "Configure kubeconfig"
-          inputs:
-            targetType: 'inline'
-            script: |
-              export KUBECONFIG=$(Agent.TempDirectory)/aks-kubeconfig
-              chmod 600 $KUBECONFIG
-              kubectl config use-context aks-devops-ecommerce
-              echo "Using kubeconfig context: $(kubectl config current-context)"
+    # Download kubeconfig from DevOps Library Secure Files
+    - task: DownloadSecureFile@1
+      name: downloadKube
+      inputs:
+        secureFile: 'aks-kubeconfig'
 
-        # Deploy each service
-        ${{ each service in parameters.services }}:
-          - task: Bash@3
-            displayName: "Deploy ${{ service.name }}"
-            inputs:
-              targetType: 'inline'
-              script: |
-                echo "Deploying ${{ service.name }}"
-                kubectl set image deployment/${{ service.deployment }} \
-                  ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag) \
-                  -n $(kubernetesNamespace) --record || true
+    - task: Bash@3
+      displayName: "Configure kubeconfig"
+      inputs:
+        targetType: 'inline'
+        script: |
+          export KUBECONFIG=$(Agent.TempDirectory)/aks-kubeconfig
+          echo "##vso[task.setvariable variable=KUBECONFIG]$KUBECONFIG"
+          chmod 600 $KUBECONFIG
+          kubectl config use-context aks-devops-ecommerce
+          echo "Using kubeconfig for context: $(kubectl config current-context)"
 
-                kubectl apply -f k8s/${{ service.deployment }}-deployment.yaml -n $(kubernetesNamespace)
-                kubectl apply -f k8s/${{ service.deployment }}-service.yaml -n $(kubernetesNamespace)
+    # Deploy frontend service
+    - task: Bash@3
+      displayName: "Deploy frontend"
+      inputs:
+        targetType: 'inline'
+        script: |
+          kubectl set image deployment/frontend \
+            frontend=$(acrName)/frontend:$(imageTag) \
+            -n $(kubernetesNamespace) --record || true
 
-                echo "Waiting for rollout of ${{ service.deployment }}"
-                kubectl rollout status deployment/${{ service.deployment }} -n $(kubernetesNamespace) --timeout=300s
+          kubectl apply -f k8s/frontend-deployment.yaml -n $(kubernetesNamespace)
+          kubectl apply -f k8s/frontend-service.yaml -n $(kubernetesNamespace)
 
-        # Final health check
-        - task: Bash@3
-          displayName: "Cluster Health Check"
-          inputs:
-            targetType: 'inline'
-            script: |
-              echo "Pods in namespace $(kubernetesNamespace):"
-              kubectl get pods -o wide -n $(kubernetesNamespace)
+          echo "Waiting for rollout of frontend"
+          kubectl rollout status deployment/frontend -n $(kubernetesNamespace) --timeout=300s
 
-              echo "Services in namespace $(kubernetesNamespace):"
-              kubectl get svc -n $(kubernetesNamespace)
+    # Deploy users service
+    - task: Bash@3
+      displayName: "Deploy users-service"
+      inputs:
+        targetType: 'inline'
+        script: |
+          kubectl set image deployment/users \
+            users=$(acrName)/users-service:$(imageTag) \
+            -n $(kubernetesNamespace) --record || true
 
-              echo "All services deployed successfully!"
+          kubectl apply -f k8s/users-deployment.yaml -n $(kubernetesNamespace)
+          kubectl apply -f k8s/users-service.yaml -n $(kubernetesNamespace)
+
+          echo "Waiting for rollout of users"
+          kubectl rollout status deployment/users -n $(kubernetesNamespace) --timeout=300s
+
+    # Deploy products service
+    - task: Bash@3
+      displayName: "Deploy products-service"
+      inputs:
+        targetType: 'inline'
+        script: |
+          kubectl set image deployment/products \
+            products=$(acrName)/products-service:$(imageTag) \
+            -n $(kubernetesNamespace) --record || true
+
+          kubectl apply -f k8s/products-deployment.yaml -n $(kubernetesNamespace)
+          kubectl apply -f k8s/products-service.yaml -n $(kubernetesNamespace)
+
+          echo "Waiting for rollout of products"
+          kubectl rollout status deployment/products -n $(kubernetesNamespace) --timeout=300s
+
+    # Deploy cart service
+    - task: Bash@3
+      displayName: "Deploy cart-service"
+      inputs:
+        targetType: 'inline'
+        script: |
+          kubectl set image deployment/cart \
+            cart=$(acrName)/cart-service:$(imageTag) \
+            -n $(kubernetesNamespace) --record || true
+
+          kubectl apply -f k8s/cart-deployment.yaml -n $(kubernetesNamespace)
+          kubectl apply -f k8s/cart-service.yaml -n $(kubernetesNamespace)
+
+          echo "Waiting for rollout of cart"
+          kubectl rollout status deployment/cart -n $(kubernetesNamespace) --timeout=300s
+
+    # Final health check
+    - task: Bash@3
+      displayName: "Cluster Health Check"
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Checking pods in namespace $(kubernetesNamespace)"
+          kubectl get pods -o wide -n $(kubernetesNamespace)
+
+          echo "Checking services in namespace $(kubernetesNamespace)"
+          kubectl get svc -n $(kubernetesNamespace)
+
+          echo "All services deployed successfully!"
