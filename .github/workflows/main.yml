@@ -72,8 +72,7 @@ jobs:
         kubectl apply -f k8s/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
         echo "Waiting for rollout of users"
         kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
-    
-    # Repeat similar steps for products-service and cart-service
+
 
 
     - name: Cluster Health Check
