@@ -41,12 +41,11 @@ jobs:
       run: |
         # Define microservices and their paths
         declare -A services=(
-          ["frontend"]="app/frontend"
-          ["users-service"]="app/users-service"
-          ["products"]="app/products-service"
-          ["cart"]="app/cart-service"
+            ["frontend"]="app/frontend"
+            ["users-service"]="app/users-service"
+            ["products-service"]="app/products-service"
+            ["cart-service"]="app/cart-service"
         )
-
         for service in "${!services[@]}"; do
           context=${services[$service]}
           echo "=============================="
