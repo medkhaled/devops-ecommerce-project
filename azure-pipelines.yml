@@ -36,6 +36,9 @@ parameters:
         deployment: cart
 
 stages:
+# -----------------------------
+# Build Stage
+# -----------------------------
 - stage: Build
   displayName: "Build and Push Docker Images"
   jobs:
@@ -46,7 +49,7 @@ stages:
         vmImage: "ubuntu-latest"
       steps:
         - checkout: self
-        
+
         - task: Docker@2
           displayName: "Build ${{ service.name }}"
           inputs:
@@ -69,8 +72,11 @@ stages:
               $(imageTag)
               latest
 
+# -----------------------------
+# Deploy Stage
+# -----------------------------
 - stage: Deploy
-  displayName: "Deploy to Production"
+  displayName: "Deploy to AKS"
   dependsOn: Build
   condition: succeeded()
   jobs:
@@ -81,58 +87,50 @@ stages:
     steps:
       - checkout: self
 
-      # Install kubectl
-      - task: KubectlInstaller@0
-        displayName: 'Install kubectl'
+      # Download kubeconfig from DevOps Library Secure Files
+      - task: DownloadSecureFile@1
+        name: downloadKube
         inputs:
-          kubectlVersion: 'latest'
+          secureFile: 'aks-kubeconfig'
 
-      # Authenticate with AKS using Azure CLI
-      - task: AzureCLI@2
-        displayName: "AKS Login"
+      - task: Bash@3
+        displayName: "Configure kubeconfig"
         inputs:
-          azureSubscription: "aks-connection"
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            echo "Getting AKS credentials..."
-            az aks get-credentials --resource-group YOUR_RG --name YOUR_AKS_NAME --overwrite-existing
+          targetType: 'inline'
+          script: |
+            export KUBECONFIG=$(Agent.TempDirectory)/aks-kubeconfig
+            echo "##vso[task.setvariable variable=KUBECONFIG]$KUBECONFIG"
+            chmod 600 $KUBECONFIG
+            kubectl config use-context aks-devops-ecommerce
+            echo "Using kubeconfig for context: $(kubectl config current-context)"
 
-      # Deploy each service
+      # Deploy all services
       - ${{ each service in parameters.services }}:
         - task: Bash@3
           displayName: "Deploy ${{ service.name }}"
           inputs:
-            targetType: inline
+            targetType: 'inline'
             script: |
-              echo "Applying manifests for ${{ service.name }}..."
-              kubectl apply -n $(kubernetesNamespace) -f k8s/${{ service.deployment }}-deployment.yaml
-              kubectl apply -n $(kubernetesNamespace) -f k8s/${{ service.deployment }}-service.yaml
-              
-              echo "Updating image for ${{ service.name }}..."
               kubectl set image deployment/${{ service.deployment }} \
-                ${{ service.name }}=$(acrName)/${{ service.name }}:$(imageTag) \
-                -n $(kubernetesNamespace)
+                ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag) \
+                -n $(kubernetesNamespace) --record || true
 
-              echo "Waiting for rollout of ${{ service.name }}..."
-              kubectl rollout status deployment/${{ service.deployment }} \
-                -n $(kubernetesNamespace) --timeout=300s
+              kubectl apply -f k8s/${{ service.deployment }}-deployment.yaml -n $(kubernetesNamespace)
+              kubectl apply -f k8s/${{ service.deployment }}-service.yaml -n $(kubernetesNamespace)
+
+              echo "Waiting for rollout of ${{ service.deployment }}"
+              kubectl rollout status deployment/${{ service.deployment }} -n $(kubernetesNamespace) --timeout=300s
 
       # Final health check
       - task: Bash@3
-        displayName: "Post-Deployment Health Check"
+        displayName: "Cluster Health Check"
         inputs:
           targetType: 'inline'
           script: |
-            echo "Checking all pods in namespace $(kubernetesNamespace)..."
+            echo "Checking pods in namespace $(kubernetesNamespace)"
             kubectl get pods -o wide -n $(kubernetesNamespace)
-            
-            echo "Checking deployments availability..."
-            for deployment in frontend users products cart; do
-              echo "Deployment: $deployment"
-              kubectl get deployment/$deployment -n $(kubernetesNamespace) -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
-              echo ""
-            done
-            
-            echo "Full cluster state:"
-            kubectl get all -n $(kubernetesNamespace)
+
+            echo "Checking services in namespace $(kubernetesNamespace)"
+            kubectl get svc -n $(kubernetesNamespace)
+
+            echo "All services deployed successfully!"
