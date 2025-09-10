@@ -9,7 +9,6 @@ on:
       - '.gitignore'
       - 'docs/**'
       - '*.md'
-
 env:
   ACR_NAME: devopsecomacr1234.azurecr.io
   KUBERNETES_NAMESPACE: default
@@ -72,8 +71,6 @@ jobs:
         kubectl apply -f k8s/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
         echo "Waiting for rollout of users"
         kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
-
-
 
     - name: Cluster Health Check
       run: |
