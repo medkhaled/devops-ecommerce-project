@@ -9,6 +9,7 @@ on:
       - '.gitignore'
       - 'docs/**'
       - '*.md'
+
 env:
   ACR_NAME: devopsecomacr1234.azurecr.io
   KUBERNETES_NAMESPACE: default
@@ -19,11 +20,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Log in to Azure Container Registry
       uses: docker/login-action@v3
       with:
@@ -36,41 +37,43 @@ jobs:
       with:
         kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-    # Build and push frontend
-    - name: Build and Push frontend image
-      uses: docker/build-push-action@v5
-      with:
-        context: app/frontend
-        push: true
-        tags: |
-          ${{ env.ACR_NAME }}/frontend:${{ github.run_id }}
-          ${{ env.ACR_NAME }}/frontend:latest
-
-    - name: Deploy frontend to AKS
+    - name: Deploy all services
       run: |
-        kubectl set image deployment/frontend frontend=${{ env.ACR_NAME }}/frontend:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
-        kubectl apply -f k8s/deployments/frontend.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        kubectl apply -f k8s/services/frontend-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        echo "Waiting for rollout of frontend"
-        kubectl rollout status deployment/frontend -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+        # Define microservices and their paths
+        declare -A services=(
+          ["frontend"]="app/frontend"
+          ["users-service"]="app/users-service"
+          ["products"]="app/products"
+          ["cart"]="app/cart"
+        )
 
-    # Build and push users-service
-    - name: Build and Push users-service image
-      uses: docker/build-push-action@v5
-      with:
-        context: app/users-service
-        push: true
-        tags: |
-          ${{ env.ACR_NAME }}/users-service:${{ github.run_id }}
-          ${{ env.ACR_NAME }}/users-service:latest
+        for service in "${!services[@]}"; do
+          context=${services[$service]}
+          echo "=============================="
+          echo "Building and pushing $service image"
+          echo "=============================="
 
-    - name: Deploy users-service to AKS
-      run: |
-        kubectl apply -f k8s/deployments/users.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        kubectl apply -f k8s/services/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-        kubectl set image deployment/users users=${{ env.ACR_NAME }}/users-service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
-        echo "Waiting for rollout of users"
-        kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+          # Build and push Docker image
+          docker build -t ${{ env.ACR_NAME }}/$service:${{ github.run_id }} $context
+          docker tag ${{ env.ACR_NAME }}/$service:${{ github.run_id }} ${{ env.ACR_NAME }}/$service:latest
+          docker push ${{ env.ACR_NAME }}/$service:${{ github.run_id }}
+          docker push ${{ env.ACR_NAME }}/$service:latest
+
+          echo "=============================="
+          echo "Deploying $service to AKS"
+          echo "=============================="
+
+          # Apply Kubernetes manifests
+          kubectl apply -f k8s/deployments/$service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+          kubectl apply -f k8s/services/$service-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+
+          # Update deployment image
+          kubectl set image deployment/$service $service=${{ env.ACR_NAME }}/$service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+
+          # Wait for rollout
+          echo "Waiting for rollout of $service"
+          kubectl rollout status deployment/$service -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
+        done
 
     - name: Cluster Health Check
       run: |
