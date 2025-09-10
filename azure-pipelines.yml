@@ -35,9 +35,6 @@ parameters:
         path: app/cart-service
         deployment: cart
 
-# -----------------------------
-# Build Stage
-# -----------------------------
 stages:
 - stage: Build
   displayName: "Build and Push Docker Images"
@@ -72,9 +69,6 @@ stages:
                 $(imageTag)
                 latest
 
-# -----------------------------
-# Deploy Stage
-# -----------------------------
 - stage: Deploy
   displayName: "Deploy to AKS"
   dependsOn: Build
@@ -86,8 +80,6 @@ stages:
         vmImage: "ubuntu-latest"
       steps:
         - checkout: self
-
-        # Download kubeconfig from Secure Files
         - task: DownloadSecureFile@1
           name: downloadKube
           inputs:
