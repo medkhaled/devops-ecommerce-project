@@ -39,15 +39,25 @@ jobs:
 
     - name: Deploy all services
       run: |
-        # Define microservices and their paths
+        # Define microservices, paths, and deployment YAML filenames
         declare -A services=(
             ["frontend"]="app/frontend"
-            ["users-service"]="app/users-service"
-            ["products-service"]="app/products-service"
-            ["cart-service"]="app/cart-service"
+            ["users"]="app/users-service"
+            ["products"]="app/products-service"
+            ["cart"]="app/cart-service"
         )
+
+        declare -A deployments=(
+            ["frontend"]="frontend.yaml"
+            ["users"]="users.yaml"
+            ["products"]="products.yaml"
+            ["cart"]="cart.yaml"
+        )
+
         for service in "${!services[@]}"; do
           context=${services[$service]}
+          deployment_file=${deployments[$service]}
+
           echo "=============================="
           echo "Building and pushing $service image"
           echo "=============================="
@@ -63,7 +73,7 @@ jobs:
           echo "=============================="
 
           # Apply Kubernetes manifests
-          kubectl apply -f k8s/deployments/$service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+          kubectl apply -f k8s/deployments/$deployment_file -n ${{ env.KUBERNETES_NAMESPACE }}
           kubectl apply -f k8s/services/$service-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
           # Update deployment image
