@@ -35,42 +35,42 @@ parameters:
         path: app/cart-service
         deployment: cart
 
-stages:
 # -----------------------------
 # Build Stage
 # -----------------------------
+stages:
 - stage: Build
   displayName: "Build and Push Docker Images"
   jobs:
-  - ${{ each service in parameters.services }}:
-    - job: Build_${{ service.safeName }}
-      displayName: "Build & Push ${{ service.name }}"
-      pool:
-        vmImage: "ubuntu-latest"
-      steps:
-        - checkout: self
+    ${{ each service in parameters.services }}:
+      - job: Build_${{ service.safeName }}
+        displayName: "Build & Push ${{ service.name }}"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
 
-        - task: Docker@2
-          displayName: "Build ${{ service.name }}"
-          inputs:
-            containerRegistry: "acr-connection"
-            repository: "${{ service.name }}"
-            command: "build"
-            Dockerfile: "${{ service.path }}/Dockerfile"
-            buildContext: "${{ service.path }}"
-            tags: |
-              $(imageTag)
-              latest
-              
-        - task: Docker@2
-          displayName: "Push ${{ service.name }}"
-          inputs:
-            containerRegistry: "acr-connection"
-            repository: "${{ service.name }}"
-            command: "push"
-            tags: |
-              $(imageTag)
-              latest
+          - task: Docker@2
+            displayName: "Build ${{ service.name }}"
+            inputs:
+              containerRegistry: "acr-connection"
+              repository: "${{ service.name }}"
+              command: "build"
+              Dockerfile: "${{ service.path }}/Dockerfile"
+              buildContext: "${{ service.path }}"
+              tags: |
+                $(imageTag)
+                latest
+          
+          - task: Docker@2
+            displayName: "Push ${{ service.name }}"
+            inputs:
+              containerRegistry: "acr-connection"
+              repository: "${{ service.name }}"
+              command: "push"
+              tags: |
+                $(imageTag)
+                latest
 
 # -----------------------------
 # Deploy Stage
@@ -80,57 +80,57 @@ stages:
   dependsOn: Build
   condition: succeeded()
   jobs:
-  - job: Deploy_All_Services
-    displayName: "Deploy All Services"
-    pool:
-      vmImage: "ubuntu-latest"
-    steps:
-      - checkout: self
+    - job: Deploy_All_Services
+      displayName: "Deploy All Services"
+      pool:
+        vmImage: "ubuntu-latest"
+      steps:
+        - checkout: self
 
-      # Download kubeconfig from DevOps Library Secure Files
-      - task: DownloadSecureFile@1
-        name: downloadKube
-        inputs:
-          secureFile: 'aks-kubeconfig'
+        # Download kubeconfig from Secure Files
+        - task: DownloadSecureFile@1
+          name: downloadKube
+          inputs:
+            secureFile: 'aks-kubeconfig'
 
-      - task: Bash@3
-        displayName: "Configure kubeconfig"
-        inputs:
-          targetType: 'inline'
-          script: |
-            export KUBECONFIG=$(Agent.TempDirectory)/aks-kubeconfig
-            echo "##vso[task.setvariable variable=KUBECONFIG]$KUBECONFIG"
-            chmod 600 $KUBECONFIG
-            kubectl config use-context aks-devops-ecommerce
-            echo "Using kubeconfig for context: $(kubectl config current-context)"
-
-      # Deploy all services
-      - ${{ each service in parameters.services }}:
         - task: Bash@3
-          displayName: "Deploy ${{ service.name }}"
+          displayName: "Configure kubeconfig"
           inputs:
             targetType: 'inline'
             script: |
-              kubectl set image deployment/${{ service.deployment }} \
-                ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag) \
-                -n $(kubernetesNamespace) --record || true
+              export KUBECONFIG=$(Agent.TempDirectory)/aks-kubeconfig
+              chmod 600 $KUBECONFIG
+              kubectl config use-context aks-devops-ecommerce
+              echo "Using kubeconfig context: $(kubectl config current-context)"
 
-              kubectl apply -f k8s/${{ service.deployment }}-deployment.yaml -n $(kubernetesNamespace)
-              kubectl apply -f k8s/${{ service.deployment }}-service.yaml -n $(kubernetesNamespace)
+        # Deploy each service
+        ${{ each service in parameters.services }}:
+          - task: Bash@3
+            displayName: "Deploy ${{ service.name }}"
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Deploying ${{ service.name }}"
+                kubectl set image deployment/${{ service.deployment }} \
+                  ${{ service.deployment }}=$(acrName)/${{ service.name }}:$(imageTag) \
+                  -n $(kubernetesNamespace) --record || true
 
-              echo "Waiting for rollout of ${{ service.deployment }}"
-              kubectl rollout status deployment/${{ service.deployment }} -n $(kubernetesNamespace) --timeout=300s
+                kubectl apply -f k8s/${{ service.deployment }}-deployment.yaml -n $(kubernetesNamespace)
+                kubectl apply -f k8s/${{ service.deployment }}-service.yaml -n $(kubernetesNamespace)
 
-      # Final health check
-      - task: Bash@3
-        displayName: "Cluster Health Check"
-        inputs:
-          targetType: 'inline'
-          script: |
-            echo "Checking pods in namespace $(kubernetesNamespace)"
-            kubectl get pods -o wide -n $(kubernetesNamespace)
+                echo "Waiting for rollout of ${{ service.deployment }}"
+                kubectl rollout status deployment/${{ service.deployment }} -n $(kubernetesNamespace) --timeout=300s
 
-            echo "Checking services in namespace $(kubernetesNamespace)"
-            kubectl get svc -n $(kubernetesNamespace)
+        # Final health check
+        - task: Bash@3
+          displayName: "Cluster Health Check"
+          inputs:
+            targetType: 'inline'
+            script: |
+              echo "Pods in namespace $(kubernetesNamespace):"
+              kubectl get pods -o wide -n $(kubernetesNamespace)
 
-            echo "All services deployed successfully!"
+              echo "Services in namespace $(kubernetesNamespace):"
+              kubectl get svc -n $(kubernetesNamespace)
+
+              echo "All services deployed successfully!"
