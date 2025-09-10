@@ -67,7 +67,7 @@ jobs:
     - name: Deploy users-service to AKS
       run: |
         kubectl set image deployment/users users=${{ env.ACR_NAME }}/users-service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} --record || true
-        kubectl apply -f k8s/deployements/users -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/deployments/users -n ${{ env.KUBERNETES_NAMESPACE }}
         kubectl apply -f k8s/services/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
         echo "Waiting for rollout of users"
         kubectl rollout status deployment/users -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
