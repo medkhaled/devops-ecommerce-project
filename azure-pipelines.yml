@@ -45,7 +45,7 @@ stages:
   - job: Build_frontend
     displayName: "Build & Push frontend"
     pool:
-      vmImage: "ubuntu-latest"
+      name: myagent
     steps:
     - checkout: self
 
@@ -74,7 +74,7 @@ stages:
   - job: Build_users_service
     displayName: "Build & Push users-service"
     pool:
-      vmImage: "ubuntu-latest"
+      name: myagent
     steps:
     - checkout: self
 
@@ -103,7 +103,7 @@ stages:
   - job: Build_products_service
     displayName: "Build & Push products-service"
     pool:
-      vmImage: "ubuntu-latest"
+      name: myagent
     steps:
     - checkout: self
 
@@ -132,7 +132,7 @@ stages:
   - job: Build_cart_service
     displayName: "Build & Push cart-service"
     pool:
-      vmImage: "ubuntu-latest"
+      name: myagent
     steps:
     - checkout: self
 
@@ -168,7 +168,7 @@ stages:
   - job: Deploy_All_Services
     displayName: "Deploy All Services"
     pool:
-      vmImage: "ubuntu-latest"
+      name: myagent
     steps:
     - checkout: self
 
