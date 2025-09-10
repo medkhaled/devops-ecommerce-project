@@ -43,8 +43,8 @@ jobs:
         declare -A services=(
           ["frontend"]="app/frontend"
           ["users-service"]="app/users-service"
-          ["products"]="app/products"
-          ["cart"]="app/cart"
+          ["products"]="app/products-service"
+          ["cart"]="app/cart-service"
         )
 
         for service in "${!services[@]}"; do
