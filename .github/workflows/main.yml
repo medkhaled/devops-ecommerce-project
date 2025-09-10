@@ -75,7 +75,7 @@ jobs:
     
     # Repeat similar steps for products-service and cart-service
 
-    # Final health check
+
     - name: Cluster Health Check
       run: |
         echo "Checking pods in namespace ${{ env.KUBERNETES_NAMESPACE }}"
