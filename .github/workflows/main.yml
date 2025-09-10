@@ -37,62 +37,73 @@ jobs:
       with:
         kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
-    - name: Deploy all services
+    # ==============================
+    # Frontend Service
+    # ==============================
+    - name: Build and push frontend image
       run: |
-        # Define microservices and their Docker context paths
-        declare -A services=(
-            ["frontend"]="app/frontend"
-            ["users"]="app/users-service"
-            ["products"]="app/products-service"
-            ["cart"]="app/cart-service"
-        )
+        docker build -t ${{ env.ACR_NAME }}/frontend:${{ github.run_id }} app/frontend
+        docker tag ${{ env.ACR_NAME }}/frontend:${{ github.run_id }} ${{ env.ACR_NAME }}/frontend:latest
+        docker push ${{ env.ACR_NAME }}/frontend:${{ github.run_id }}
+        docker push ${{ env.ACR_NAME }}/frontend:latest
 
-        # Map service names to deployment YAML filenames
-        declare -A deployments=(
-            ["frontend"]="frontend.yaml"
-            ["users"]="users.yaml"
-            ["products"]="products.yaml"
-            ["cart"]="cart.yaml"
-        )
+    - name: Deploy frontend to AKS
+      run: |
+        kubectl apply -f k8s/deployments/frontend.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/services/frontend-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl set image deployment/frontend frontend=${{ env.ACR_NAME }}/frontend:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+        kubectl rollout status deployment/frontend -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
-        # Map service names to Kubernetes deployment names
-        declare -A k8s_deployments=(
-            ["frontend"]="frontend"
-            ["users"]="users-service"
-            ["products"]="products-service"
-            ["cart"]="cart-service"
-        )
+    # ==============================
+    # Users Service
+    # ==============================
+    - name: Build and push users-service image
+      run: |
+        docker build -t ${{ env.ACR_NAME }}/users:${{ github.run_id }} app/users-service
+        docker tag ${{ env.ACR_NAME }}/users:${{ github.run_id }} ${{ env.ACR_NAME }}/users:latest
+        docker push ${{ env.ACR_NAME }}/users:${{ github.run_id }}
+        docker push ${{ env.ACR_NAME }}/users:latest
 
-        for service in "${!services[@]}"; do
-          context=${services[$service]}
-          deployment_file=${deployments[$service]}
-          deployment_name=${k8s_deployments[$service]}
+    - name: Deploy users-service to AKS
+      run: |
+        kubectl apply -f k8s/deployments/users.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/services/users-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl set image deployment/users-service users=${{ env.ACR_NAME }}/users:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+        kubectl rollout status deployment/users-service -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
-          echo "=============================="
-          echo "Building and pushing $service image"
-          echo "=============================="
+    # ==============================
+    # Products Service
+    # ==============================
+    - name: Build and push products-service image
+      run: |
+        docker build -t ${{ env.ACR_NAME }}/products:${{ github.run_id }} app/products-service
+        docker tag ${{ env.ACR_NAME }}/products:${{ github.run_id }} ${{ env.ACR_NAME }}/products:latest
+        docker push ${{ env.ACR_NAME }}/products:${{ github.run_id }}
+        docker push ${{ env.ACR_NAME }}/products:latest
 
-          # Build and push Docker image
-          docker build -t ${{ env.ACR_NAME }}/$service:${{ github.run_id }} $context
-          docker tag ${{ env.ACR_NAME }}/$service:${{ github.run_id }} ${{ env.ACR_NAME }}/$service:latest
-          docker push ${{ env.ACR_NAME }}/$service:${{ github.run_id }}
-          docker push ${{ env.ACR_NAME }}/$service:latest
+    - name: Deploy products-service to AKS
+      run: |
+        kubectl apply -f k8s/deployments/products.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/services/products-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl set image deployment/products-service products=${{ env.ACR_NAME }}/products:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+        kubectl rollout status deployment/products-service -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
-          echo "=============================="
-          echo "Deploying $service to AKS"
-          echo "=============================="
+    # ==============================
+    # Cart Service
+    # ==============================
+    - name: Build and push cart-service image
+      run: |
+        docker build -t ${{ env.ACR_NAME }}/cart:${{ github.run_id }} app/cart-service
+        docker tag ${{ env.ACR_NAME }}/cart:${{ github.run_id }} ${{ env.ACR_NAME }}/cart:latest
+        docker push ${{ env.ACR_NAME }}/cart:${{ github.run_id }}
+        docker push ${{ env.ACR_NAME }}/cart:latest
 
-          # Apply Kubernetes manifests
-          kubectl apply -f k8s/deployments/$deployment_file -n ${{ env.KUBERNETES_NAMESPACE }}
-          kubectl apply -f k8s/services/$service-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-
-          # Update deployment image
-          kubectl set image deployment/$deployment_name $service=${{ env.ACR_NAME }}/$service:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
-
-          # Wait for rollout
-          echo "Waiting for rollout of $deployment_name"
-          kubectl rollout status deployment/$deployment_name -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
-        done
+    - name: Deploy cart-service to AKS
+      run: |
+        kubectl apply -f k8s/deployments/cart.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl apply -f k8s/services/cart-service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl set image deployment/cart-service cart=${{ env.ACR_NAME }}/cart:${{ github.run_id }} -n ${{ env.KUBERNETES_NAMESPACE }} || true
+        kubectl rollout status deployment/cart-service -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=300s
 
     - name: Cluster Health Check
       run: |
